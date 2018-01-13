@@ -2,7 +2,8 @@
 #   Interact with Jenkins instance remotely. Build jobs, change branches, start builders, lock jobs... The list goes on.
 #
 # Dependencies:
-#   Nope
+#   xml2js
+#   cron
 #
 # Configuration:
 #   HUBOT_JENKINS_URL - Jenkins base URL
@@ -38,6 +39,7 @@
 #
 # Author:
 #   @riveramj
+#   @lwebb - fixed problems with CSRF and post requests
 
 {parseString} = require 'xml2js'
 cronJob = require('cron').CronJob
@@ -58,6 +60,17 @@ withAuthentication = (robot, msg, callback) ->
   apiKey = authStructure.apiKey || jenkinsUserAPIKey
 
   callback(user, apiKey)
+
+withCrumb = (robot, msg, callback) ->
+  withAuthentication robot, msg, (user, apiKey) ->
+    robot.http("#{jenkinsURL}/crumbIssuer/api/json")
+      .auth("#{user}", "#{apiKey}")
+      .get() (err, res, body) ->
+        if err
+          msg.sent "Problem getting a CSRF token #{err}"
+        else
+          json = JSON.parse(body)
+          callback(user, apiKey, json.crumb)
 
 checkAuthentcation = (robot, msg) ->
   yardmaster = robot.brain.get('yardmaster') || {}
@@ -128,16 +141,18 @@ get = (robot, msg, queryOptions, callback) ->
           callback(res, body)
 
 post = (robot, msg, queryOptions, postOptions, callback) ->
-  withAuthentication robot, msg, (user, apiKey) ->
+  withCrumb robot, msg, (user, apiKey, crumb) ->
     robot.http("#{jenkinsURL}/#{queryOptions}")
       .auth("#{user}", "#{apiKey}")
+      .headers('Jenkins-Crumb': crumb)
       .post(postOptions) (err, res, body) ->
         callback(err, res, body)
 
 postByFullUrl = (robot, msg, url, postOptions, callback) ->
-  withAuthentication robot, msg, (user, apiKey) ->
+  withCrumb robot, msg, (user, apiKey, crumb) ->
     robot.http(url)
       .auth("#{user}", "#{apiKey}")
+      .headers('Jenkins-Crumb': crumb)
       .post(postOptions) (err, res, body) ->
         callback(err, res, body)
 
@@ -260,23 +275,27 @@ findCurrentBranch = (robot, msg, job, callback) ->
 
 listJobs = (robot, msg) ->
   jobFilter = new RegExp(msg.match[2].trim(),"i")
+  response = ""
 
-  get robot, msg, "api/json", (res, body) ->
-    response = ""
-    jobs = JSON.parse(body).jobs
-    for job in jobs
-      lastBuildState = if job.color == "blue" then "PASSING" else "FAILING"
+  getJobs = (q) ->
+    get robot, msg, "#{q}/api/json", (res, body) ->
+      jobs = JSON.parse(body).jobs
+      for job in jobs
+        cnPath = job._class.split('.')
+        cn = cnPath[cnPath.length - 1]
+        if cn == 'Folder'
+          getJobs("job/#{job.name}")
+          continue
+        lastBuildState = if job.color == "blue" then "PASSING" else "FAILING"
 
-      if jobFilter?
-        if jobFilter.test job.name
-          response += "#{job.name} is #{lastBuildState}: #{job.url}\n"
-      else
-        response += "#{job.name} is #{lastBuildState}: #{job.url}\n"
+        if jobFilter?
+          if jobFilter.test job.name
+            msg.send "#{job.name} is #{lastBuildState}: #{job.url} : #{cn}"
+        else
+          msg.send "#{job.name} is #{lastBuildState}: #{job.url} : #{cn}"
 
-    msg.send """
-      Here are the jobs
-      #{response}
-    """
+  msg.send "Here are the jobs"
+  getJobs ''
 
 changeJobState = (robot, msg) ->
   changeState = msg.match[1].trim()
