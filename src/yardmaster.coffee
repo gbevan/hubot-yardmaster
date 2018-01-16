@@ -299,8 +299,9 @@ listJobs = (robot, msg) ->
 
   response += "Here are the jobs\n"
   getJobs('')
-  .then() ->
+  .then(() ->
     msg.send response
+  )
 
 changeJobState = (robot, msg) ->
   changeState = msg.match[1].trim()
