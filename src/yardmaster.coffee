@@ -298,7 +298,7 @@ listJobs = (robot, msg) ->
         resolve(Promise.all(promises))
 
   response += "Here are the jobs\n"
-  getJobs ''
+  getJobs('')
   .then() ->
     msg.send response
 
