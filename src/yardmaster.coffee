@@ -278,24 +278,29 @@ listJobs = (robot, msg) ->
   response = ""
 
   getJobs = (q) ->
-    get robot, msg, "#{q}/api/json", (res, body) ->
-      jobs = JSON.parse(body).jobs
-      for job in jobs
-        cnPath = job._class.split('.')
-        cn = cnPath[cnPath.length - 1]
-        if cn == 'Folder'
-          getJobs("job/#{job.name}")
-          continue
-        lastBuildState = if job.color == "blue" then "PASSING" else "FAILING"
+    return new Promise (resolve, reject) ->
+      get robot, msg, "#{q}/api/json", (res, body) ->
+        jobs = JSON.parse(body).jobs
+        promises = []
+        for job in jobs
+          cnPath = job._class.split('.')
+          cn = cnPath[cnPath.length - 1]
+          if cn == 'Folder'
+            promises.push(getJobs("job/#{job.name}"))
+            continue
+          lastBuildState = if job.color == "blue" then "PASSING" else "FAILING"
 
-        if jobFilter?
-          if jobFilter.test job.name
-            msg.send "#{job.name} is #{lastBuildState}: #{job.url} : #{cn}"
-        else
-          msg.send "#{job.name} is #{lastBuildState}: #{job.url} : #{cn}"
+          if jobFilter?
+            if jobFilter.test job.name
+              response += "#{job.name} is #{lastBuildState}: #{job.url} : #{cn}\n"
+          else
+            response += "#{job.name} is #{lastBuildState}: #{job.url} : #{cn}\n"
+        resolve(Promise.all(promises))
 
-  msg.send "Here are the jobs"
+  response += "Here are the jobs\n"
   getJobs ''
+  .then() ->
+    msg.send response
 
 changeJobState = (robot, msg) ->
   changeState = msg.match[1].trim()
