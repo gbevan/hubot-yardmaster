@@ -43,6 +43,7 @@
 
 {parseString} = require 'xml2js'
 cronJob = require('cron').CronJob
+{URL} = require 'url'
 
 jenkinsURL = process.env.HUBOT_JENKINS_URL
 jenkinsUser = process.env.HUBOT_JENKINS_USER
@@ -290,11 +291,11 @@ listJobs = (robot, msg) ->
             continue
           lastBuildState = if job.color == "blue" then "PASSING" else "FAILING"
 
-          if jobFilter?
-            if jobFilter.test job.name
-              response += "#{job.name} is #{lastBuildState}: #{job.url} : #{cn}\n"
-          else
-            response += "#{job.name} is #{lastBuildState}: #{job.url} : #{cn}\n"
+          m = (new URL(job.url)).pathname.match(/^\/job\/(.*)(?:\/)$/)
+          jobPathName = m[1]
+          if jobFilter.test jobPathName
+            response += "#{cn} : #{jobPathName} is #{lastBuildState}: #{job.url}\n"
+
         resolve(Promise.all(promises))
 
   response += "Here are the jobs\n"
